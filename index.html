@@ -1,405 +1,224 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Gestionale Inventario — Bar/Tabacchi</title>
-
-  <!-- React + Babel + Tailwind (dev links) -->
-  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <style>
-    /* Watermark */
-    .watermark {
-      position: fixed;
-      right: 12px;
-      bottom: 8px;
-      font-size: 0.85rem;
-      color: rgba(0,0,0,0.25);
-      pointer-events: none;
-      user-select: none;
-    }
-    /* Soft container max width on large screens */
-    .app-max { max-width: 1100px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestione Inventario — Bar/Tabacchi</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-50 text-gray-800 antialiased">
-  <div id="root"></div>
+<body class="bg-gray-100">
+<div id="root"></div>
 
-  <script type="text/babel">
-    const LS = {
-      INVENTORY: "bar_inventory_master_v1",
-      ORDERS: "bar_orders_master_v1"
-    };
+<script type="text/babel">
+const LS_KEYS = {
+  INVENTORY: "bar_inventory_v2",
+  ORDERS: "bar_orders_v2",
+};
 
-    const currency = (n) =>
-      Number(n || 0).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const currency = n => n.toLocaleString("it-IT",{style:"currency",currency:"EUR"});
 
-    const todayISO = () => new Date().toISOString().slice(0,10);
+function App() {
+  const [page, setPage] = React.useState("inventory"); // inventory | add | reload | orders
+  const [inventory, setInventory] = React.useState([]);
+  const [orders, setOrders] = React.useState([]);
+  const [newProduct, setNewProduct] = React.useState({brand:"", qty:"", price:"", minQty:""});
+  const [reloadForm, setReloadForm] = React.useState({brand:"", qty:"", price:""});
+  const [multiUnload, setMultiUnload] = React.useState([{brand:"", qty:""}]);
+  const [filterDate, setFilterDate] = React.useState(todayISO());
 
-    function useLocalState(key, initial) {
-      const [state, setState] = React.useState(() => {
-        try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : initial; }
-        catch { return initial; }
+  // Load localStorage
+  React.useEffect(() => {
+    const inv = localStorage.getItem(LS_KEYS.INVENTORY);
+    const ord = localStorage.getItem(LS_KEYS.ORDERS);
+    if(inv) setInventory(JSON.parse(inv));
+    if(ord) setOrders(JSON.parse(ord));
+  },[]);
+
+  // Save localStorage
+  React.useEffect(()=>{ localStorage.setItem(LS_KEYS.INVENTORY,JSON.stringify(inventory)) },[inventory]);
+  React.useEffect(()=>{ localStorage.setItem(LS_KEYS.ORDERS,JSON.stringify(orders)) },[orders]);
+
+  // Alert sotto soglia
+  React.useEffect(()=>{
+    inventory.forEach(p=>{
+      if(p.minQty && p.qty < p.minQty){
+        console.warn(`⚠️ Attenzione: ${p.brand} sotto soglia (${p.qty} < ${p.minQty})`);
+      }
+    })
+  },[inventory]);
+
+  // --- Aggiungi nuovo prodotto ---
+  function addProduct(e){
+    e.preventDefault();
+    if(!newProduct.brand) return alert("Inserisci marca");
+    const qty = parseInt(newProduct.qty||0,10);
+    const price = parseFloat(newProduct.price||0);
+    const minQty = parseInt(newProduct.minQty||0,10);
+    if(qty<0 || isNaN(qty)) return alert("Quantità non valida");
+    if(price<0 || isNaN(price)) return alert("Prezzo non valido");
+
+    const exists = inventory.find(p=>p.brand.toLowerCase()===newProduct.brand.trim().toLowerCase());
+    if(exists){
+      setInventory(prev=> prev.map(p=> p.brand.toLowerCase()===newProduct.brand.trim().toLowerCase() ? 
+        {...p, qty: p.qty + qty, price: price, minQty: minQty || p.minQty} : p
+      ));
+    } else {
+      setInventory(prev=> [...prev, {brand:newProduct.brand.trim(), qty, price, minQty}]);
+    }
+    setNewProduct({brand:"", qty:"", price:"", minQty:""});
+    setPage("inventory");
+  }
+
+  // --- Ricarica quantità prodotto esistente ---
+  function reloadProduct(e){
+    e.preventDefault();
+    const prod = inventory.find(p=>p.brand===reloadForm.brand);
+    if(!prod) return alert("Prodotto non trovato");
+    const qty = parseInt(reloadForm.qty||0,10);
+    const price = parseFloat(reloadForm.price||prod.price);
+    if(isNaN(qty)||qty<=0) return alert("Quantità non valida");
+    if(isNaN(price)||price<0) return alert("Prezzo non valido");
+
+    setInventory(prev=> prev.map(p=> p.brand===reloadForm.brand? {...p, qty: p.qty + qty, price} : p));
+    setReloadForm({brand:"", qty:"", price:""});
+    setPage("inventory");
+  }
+
+  // --- Scarico multiplo ---
+  function unloadMulti(e){
+    e.preventDefault();
+    const updates = [...inventory];
+    for(const item of multiUnload){
+      if(!item.brand) continue;
+      const prod = updates.find(p=>p.brand===item.brand);
+      if(!prod) continue;
+      const qty = parseInt(item.qty||0,10);
+      if(qty>prod.qty) { alert(`Scorte insufficienti: ${prod.brand}`); continue; }
+      prod.qty -= qty;
+      orders.push({
+        id: Date.now()+Math.random(),
+        brand: prod.brand,
+        qty,
+        unitPrice: prod.price,
+        total: +(prod.price*qty).toFixed(2),
+        date: new Date().toISOString()
       });
-      React.useEffect(() => { localStorage.setItem(key, JSON.stringify(state)); }, [key, state]);
-      return [state, setState];
     }
+    setInventory(updates);
+    setOrders([...orders]);
+    setMultiUnload([{brand:"", qty:""}]);
+  }
 
-    function App() {
-      // apertura su inventario
-      const [page, setPage] = React.useState("inventario"); // 'gestione' | 'inventario'
-      const [inventory, setInventory] = useLocalState(LS.INVENTORY, []);
-      const [orders, setOrders] = useLocalState(LS.ORDERS, []);
-      const [filterDate, setFilterDate] = React.useState(todayISO());
+  // --- CSV Export ---
+  function exportCSV(){
+    let csv = "Marca,Quantità,Prezzo,MinQuantità\n";
+    inventory.forEach(p=>{ csv+=`${p.brand},${p.qty},${p.price},${p.minQty||""}\n`});
+    const blob = new Blob([csv], {type:"text/csv"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "inventario.csv"; a.click(); URL.revokeObjectURL(url);
+  }
 
-      // forms
-      const [newProduct, setNewProduct] = React.useState({ brand: "", qty: "", price: "", min: "" });
-      const [reloadForm, setReloadForm] = React.useState({ brand: "", qty: "", price: "" });
-      const [sales, setSales] = React.useState([{ brand: "", qty: "" }]);
+  // --- UI Helpers ---
+  const todaysOrders = orders.filter(o=>o.date.slice(0,10)===filterDate);
+  const totalToday = todaysOrders.reduce((s,o)=>s+o.total,0);
 
-      // utility
-      function findProductByBrand(brand) {
-        return inventory.find(p => p.brand === brand);
-      }
+  return (
+    <div className="min-h-screen flex flex-col font-sans">
+      <header className="bg-indigo-600 text-white p-4 flex justify-between items-center">
+        <h1 className="text-lg font-bold">Inventario Bar / Tabacchi</h1>
+        <nav className="flex gap-2 text-sm">
+          <button className="px-2 py-1 bg-indigo-400 rounded" onClick={()=>setPage("inventory")}>Inventario</button>
+          <button className="px-2 py-1 bg-indigo-400 rounded" onClick={()=>setPage("add")}>Nuovo</button>
+          <button className="px-2 py-1 bg-indigo-400 rounded" onClick={()=>setPage("reload")}>Ricarica</button>
+          <button className="px-2 py-1 bg-indigo-400 rounded" onClick={()=>setPage("unload")}>Scarico</button>
+        </nav>
+      </header>
 
-      // --- Aggiungi nuovo prodotto (solo se non esiste) ---
-      function addProduct(e) {
-        e.preventDefault();
-        const brand = (newProduct.brand || "").trim();
-        const qty = parseInt(newProduct.qty || "0", 10);
-        const price = parseFloat(newProduct.price || "0");
-        const min = parseInt(newProduct.min || "0", 10);
-
-        if (!brand) return alert("Inserisci la marca.");
-        if (isNaN(qty) || qty < 0) return alert("Quantità non valida.");
-        if (isNaN(price) || price < 0) return alert("Prezzo non valido.");
-        if (isNaN(min) || min < 0) return alert("Quantità minima non valida.");
-
-        const exists = inventory.some(p => p.brand.toLowerCase() === brand.toLowerCase());
-        if (exists) return alert("Prodotto già presente. Usa la funzione ricarica.");
-
-        setInventory(prev => [...prev, { brand, qty, price, min }]);
-        setNewProduct({ brand: "", qty: "", price: "", min: "" });
-        setPage("inventario");
-      }
-
-      // --- Ricarica prodotto esistente (quantità additiva, prezzo solo se fornito) ---
-      function reloadProduct(e) {
-        e.preventDefault();
-        if (!reloadForm.brand) return alert("Seleziona un prodotto.");
-        const qty = parseInt(reloadForm.qty || "0", 10);
-        if (isNaN(qty) || qty <= 0) return alert("Quantità non valida.");
-
-        setInventory(prev => prev.map(p => {
-          if (p.brand !== reloadForm.brand) return p;
-          const newPrice = reloadForm.price ? parseFloat(reloadForm.price) : p.price;
-          return { ...p, qty: p.qty + qty, price: Number.isFinite(newPrice) ? newPrice : p.price };
-        }));
-
-        setReloadForm({ brand: "", qty: "", price: "" });
-        setPage("inventario");
-      }
-
-      // --- Gestione vendite multiple (scarico) ---
-      function addSaleRow() { setSales(prev => [...prev, { brand: "", qty: "" }]); }
-      function removeSaleRow(i) { setSales(prev => prev.filter((_, idx) => idx !== i)); }
-      function updateSale(i, field, value) {
-        setSales(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r ));
-      }
-
-      function registerSales(e) {
-        e.preventDefault();
-        const updatedInventory = [...inventory];
-        const newOrders = [];
-
-        for (const row of sales) {
-          const brand = (row.brand || "").trim();
-          if (!brand) continue;
-          const qty = parseInt(row.qty || "0", 10);
-          if (isNaN(qty) || qty <= 0) { alert(`Quantità non valida per ${brand}`); return; }
-          const idx = updatedInventory.findIndex(p => p.brand === brand);
-          if (idx === -1) { alert(`Prodotto ${brand} non trovato.`); return; }
-          if (updatedInventory[idx].qty < qty) { alert(`Scorte insufficienti per ${brand}.`); return; }
-
-          updatedInventory[idx] = { ...updatedInventory[idx], qty: updatedInventory[idx].qty - qty };
-          const unitPrice = updatedInventory[idx].price;
-          const total = +(unitPrice * qty).toFixed(2);
-          newOrders.push({ id: Date.now() + Math.random(), brand, qty, unitPrice, total, date: new Date().toISOString() });
-
-          // alert sotto soglia
-          if (updatedInventory[idx].qty <= (updatedInventory[idx].min || 0)) {
-            alert(`⚠️ "${brand}" sotto soglia minima (${updatedInventory[idx].qty} ≤ ${updatedInventory[idx].min})`);
-          }
-        }
-
-        setInventory(updatedInventory);
-        if (newOrders.length) setOrders(prev => [...prev, ...newOrders]);
-        setSales([{ brand: "", qty: "" }]);
-      }
-
-      // --- Elimina prodotto ---
-      function deleteProduct(brand) {
-        if (!confirm(`Eliminare ${brand}?`)) return;
-        setInventory(prev => prev.filter(p => p.brand !== brand));
-      }
-
-      // --- CSV export (inventory / orders) ---
-      function downloadCSV(filename, headers, rows) {
-        let csv = headers.join(",") + "\n";
-        rows.forEach(r => {
-          const line = headers.map(h => {
-            const key = h.toLowerCase();
-            const val = r[key] === undefined ? "" : String(r[key]).replace(/"/g, '""');
-            return `"${val}"`;
-          }).join(",");
-          csv += line + "\n";
-        });
-        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url; a.download = filename; a.click();
-        URL.revokeObjectURL(url);
-      }
-
-      function exportInventoryCSV() {
-        const rows = inventory.map(p => ({ nome: p.brand, quantita: p.qty, prezzo: p.price, min: p.min }));
-        downloadCSV("inventario.csv", ["Nome","Quantita","Prezzo","Min"], rows);
-      }
-
-      function exportOrdersCSV() {
-        const rows = orders.map(o => ({ id: o.id, brand: o.brand, qty: o.qty, unitprice: o.unitPrice, total: o.total, date: o.date }));
-        downloadCSV("vendite.csv", ["ID","Brand","Qty","UnitPrice","Total","Date"], rows);
-      }
-
-      // --- CSV import for inventory (merge: add if new, update qty+price/min if exists) ---
-      function handleImportInventory(file) {
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const text = ev.target.result.replace(/\r/g, "");
-          const lines = text.split("\n").map(l => l.trim()).filter(l => l);
-          const parsed = lines.map(line => {
-            // accept both CSV with headers and without
-            const parts = line.split(",").map(c => c.trim().replace(/^"|"$/g,""));
-            return parts;
-          });
-
-          // If first row looks like header, skip it
-          let startIdx = 0;
-          const first = parsed[0] || [];
-          const hasHeader = first.some(cell => /nome|name|quant/i.test(cell));
-          if (hasHeader) startIdx = 1;
-
-          const newInv = [...inventory];
-          for (let i = startIdx; i < parsed.length; i++) {
-            const row = parsed[i];
-            if (row.length < 2) continue;
-            const brand = row[0];
-            const qty = parseInt(row[1] || "0", 10) || 0;
-            const price = parseFloat(row[2] || "0") || 0;
-            const min = parseInt(row[3] || "0", 10) || 0;
-
-            const idx = newInv.findIndex(p => p.brand.toLowerCase() === brand.toLowerCase());
-            if (idx === -1) {
-              newInv.push({ brand, qty, price, min });
-            } else {
-              // merge: aggiungi quantità e aggiorna prezzo/min solo se forniti non vuoti
-              newInv[idx] = {
-                ...newInv[idx],
-                qty: newInv[idx].qty + qty,
-                price: price || newInv[idx].price,
-                min: min || newInv[idx].min
-              };
-            }
-          }
-
-          setInventory(newInv);
-          alert("Import completato.");
-        };
-        reader.readAsText(file);
-      }
-
-      // UI components
-      function Header() {
-        return (
-          <header className="bg-white shadow-sm sticky top-0 z-30">
-            <div className="app-max mx-auto px-4 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-md bg-indigo-600 flex items-center justify-center text-white font-semibold">SS</div>
-                <div>
-                  <div className="text-lg font-semibold">Gestionale — Bar / Tabacchi</div>
-                  <div className="text-xs text-gray-500">Interfaccia professionale • Mobile friendly</div>
-                </div>
-              </div>
-
-              <nav className="flex items-center gap-2">
-                <button onClick={() => setPage("inventario")} className={`px-3 py-1 rounded-md text-sm ${page === "inventario" ? "bg-indigo-600 text-white" : "bg-gray-100"}`}>Inventario & Vendite</button>
-                <button onClick={() => setPage("gestione")} className={`px-3 py-1 rounded-md text-sm ${page === "gestione" ? "bg-indigo-600 text-white" : "bg-gray-100"}`}>Gestione Prodotti</button>
-                <div className="hidden sm:block border-l h-6 ml-2"></div>
-                <button onClick={exportInventoryCSV} className="text-sm px-3 py-1 bg-white border rounded-md">Esporta Inventario</button>
-                <button onClick={exportOrdersCSV} className="text-sm px-3 py-1 bg-white border rounded-md">Esporta Vendite</button>
-              </nav>
+      <main className="flex-1 p-4 overflow-auto">
+        {page==="inventory" && (
+          <div>
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-lg font-semibold">Inventario</h2>
+              <button className="px-2 py-1 bg-green-600 text-white rounded text-sm" onClick={exportCSV}>CSV</button>
             </div>
-          </header>
-        );
-      }
+            <table className="w-full text-sm border-collapse">
+              <thead className="bg-gray-200">
+                <tr><th className="border p-1">Marca</th><th className="border p-1">Qty</th><th className="border p-1">Prezzo</th><th className="border p-1">MinQty</th></tr>
+              </thead>
+              <tbody>
+                {inventory.map(p=>(
+                  <tr key={p.brand} className="border-t">
+                    <td className="p-1">{p.brand}</td>
+                    <td className={`p-1 ${p.minQty && p.qty < p.minQty ? "text-red-600 font-bold" : ""}`}>{p.qty}</td>
+                    <td className="p-1">{currency(p.price)}</td>
+                    <td className="p-1">{p.minQty||""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-      function GestioneProdotti() {
-        return (
-          <section className="app-max mx-auto px-4 py-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Aggiungi nuovo */}
-              <div className="bg-white p-4 rounded-xl shadow">
-                <h3 className="font-semibold text-lg mb-3">Aggiungi nuovo prodotto</h3>
-                <form onSubmit={addProduct} className="space-y-3">
-                  <input className="w-full border rounded p-2" placeholder="Marca" value={newProduct.brand} onChange={e => setNewProduct({ ...newProduct, brand: e.target.value })} />
-                  <div className="flex gap-2 flex-wrap">
-                    <input className="flex-1 border rounded p-2" type="number" placeholder="Quantità" value={newProduct.qty} onChange={e => setNewProduct({ ...newProduct, qty: e.target.value })} />
-                    <input className="flex-1 border rounded p-2" type="number" step="0.01" placeholder="Prezzo €" value={newProduct.price} onChange={e => setNewProduct({ ...newProduct, price: e.target.value })} />
-                    <input className="w-36 border rounded p-2" type="number" placeholder="Quantità minima" value={newProduct.min} onChange={e => setNewProduct({ ...newProduct, min: e.target.value })} />
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="bg-indigo-600 text-white px-4 py-2 rounded">Salva</button>
-                    <button type="button" onClick={() => setNewProduct({ brand: "", qty: "", price: "", min: "" })} className="px-4 py-2 border rounded">Reset</button>
-                  </div>
-                </form>
+        {page==="add" && (
+          <form className="max-w-md mx-auto bg-white p-4 rounded shadow" onSubmit={addProduct}>
+            <h2 className="text-lg font-semibold mb-2">Aggiungi nuovo prodotto</h2>
+            <input type="text" placeholder="Marca" className="w-full p-2 border mb-2 rounded" value={newProduct.brand} onChange={e=>setNewProduct({...newProduct, brand:e.target.value})}/>
+            <input type="number" placeholder="Quantità" className="w-full p-2 border mb-2 rounded" value={newProduct.qty} onChange={e=>setNewProduct({...newProduct, qty:e.target.value})}/>
+            <input type="number" placeholder="Prezzo €" step="0.01" className="w-full p-2 border mb-2 rounded" value={newProduct.price} onChange={e=>setNewProduct({...newProduct, price:e.target.value})}/>
+            <input type="number" placeholder="Quantità minima (alert)" className="w-full p-2 border mb-2 rounded" value={newProduct.minQty} onChange={e=>setNewProduct({...newProduct, minQty:e.target.value})}/>
+            <button className="px-3 py-1 bg-indigo-600 text-white rounded">Salva</button>
+          </form>
+        )}
+
+        {page==="reload" && (
+          <form className="max-w-md mx-auto bg-white p-4 rounded shadow" onSubmit={reloadProduct}>
+            <h2 className="text-lg font-semibold mb-2">Ricarica quantità prodotto</h2>
+            <select className="w-full p-2 border mb-2 rounded" value={reloadForm.brand} onChange={e=>setReloadForm({...reloadForm, brand:e.target.value})}>
+              <option value="">-- Seleziona marca --</option>
+              {inventory.map(p=><option key={p.brand} value={p.brand}>{p.brand}</option>)}
+            </select>
+            <input type="number" placeholder="Quantità da aggiungere" className="w-full p-2 border mb-2 rounded" value={reloadForm.qty} onChange={e=>setReloadForm({...reloadForm, qty:e.target.value})}/>
+            <input type="number" placeholder="Prezzo € (lascia se non cambia)" step="0.01" className="w-full p-2 border mb-2 rounded" value={reloadForm.price} onChange={e=>setReloadForm({...reloadForm, price:e.target.value})}/>
+            <button className="px-3 py-1 bg-indigo-600 text-white rounded">Aggiorna</button>
+          </form>
+        )}
+
+        {page==="unload" && (
+          <form className="max-w-md mx-auto bg-white p-4 rounded shadow" onSubmit={unloadMulti}>
+            <h2 className="text-lg font-semibold mb-2">Scarico multiplo</h2>
+            {multiUnload.map((m,i)=>(
+              <div key={i} className="flex gap-2 mb-2">
+                <select className="flex-1 p-2 border rounded" value={m.brand} onChange={e=>{
+                  const copy = [...multiUnload]; copy[i].brand=e.target.value; setMultiUnload(copy);
+                }}>
+                  <option value="">-- Marca --</option>
+                  {inventory.map(p=><option key={p.brand} value={p.brand}>{p.brand}</option>)}
+                </select>
+                <input type="number" placeholder="Quantità" className="w-28 p-2 border rounded" value={m.qty} onChange={e=>{
+                  const copy = [...multiUnload]; copy[i].qty=e.target.value; setMultiUnload(copy);
+                }}/>
+                {i===multiUnload.length-1 && <button type="button" className="px-2 bg-green-500 text-white rounded" onClick={()=>setMultiUnload([...multiUnload,{brand:"",qty:""}])}>+</button>}
               </div>
+            ))}
+            <button className="px-3 py-1 bg-indigo-600 text-white rounded">Scarica</button>
+          </form>
+        )}
+      </main>
 
-              {/* Ricarica */}
-              <div className="bg-white p-4 rounded-xl shadow">
-                <h3 className="font-semibold text-lg mb-3">Ricarica prodotto</h3>
-                <form onSubmit={reloadProduct} className="space-y-3">
-                  <select className="w-full border rounded p-2" value={reloadForm.brand} onChange={e => setReloadForm({ ...reloadForm, brand: e.target.value })}>
-                    <option value="">-- Seleziona prodotto --</option>
-                    {inventory.map(p => <option key={p.brand} value={p.brand}>{p.brand} ({p.qty}pz)</option>)}
-                  </select>
-                  <div className="flex gap-2">
-                    <input className="flex-1 border rounded p-2" type="number" placeholder="Quantità da aggiungere" value={reloadForm.qty} onChange={e => setReloadForm({ ...reloadForm, qty: e.target.value })} />
-                    <input className="w-36 border rounded p-2" type="number" step="0.01" placeholder="Prezzo (facoltativo)" value={reloadForm.price} onChange={e => setReloadForm({ ...reloadForm, price: e.target.value })} />
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="bg-green-600 text-white px-4 py-2 rounded">Ricarica</button>
-                    <button type="button" onClick={() => setReloadForm({ brand: "", qty: "", price: "" })} className="px-4 py-2 border rounded">Reset</button>
-                  </div>
-                </form>
+      <div className="fixed bottom-2 right-2 text-gray-400 text-xs select-none pointer-events-none">
+        S.S. - 2025
+      </div>
+    </div>
+  );
+}
 
-                <hr className="my-4" />
-
-                {/* Import CSV */}
-                <div>
-                  <h4 className="font-medium mb-2">Importa inventario da CSV</h4>
-                  <input type="file" accept=".csv,text/csv" onChange={(e) => handleImportInventory(e.target.files[0])} className="w-full" />
-                  <p className="text-xs text-gray-500 mt-2">Formato: Nome,Quantità,Prezzo,Min (header opzionale)</p>
-                </div>
-              </div>
-            </div>
-          </section>
-        );
-      }
-
-      function InventarioVendite() {
-        const todaysOrders = orders.filter(o => o.date.slice(0,10) === filterDate);
-        const totalToday = todaysOrders.reduce((s,o) => s + (o.total || 0), 0);
-
-        return (
-          <section className="app-max mx-auto px-4 py-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Inventario (main) */}
-              <div className="lg:col-span-2 bg-white p-4 rounded-xl shadow overflow-x-auto">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-lg">Inventario</h3>
-                  <div className="flex items-center gap-2">
-                    <button onClick={exportInventoryCSV} className="text-sm px-3 py-1 border rounded">Download CSV</button>
-                    <button onClick={() => { if (confirm('Cancellare tutti i dati?')) { setInventory([]); setOrders([]); } }} className="text-sm px-3 py-1 border rounded text-red-600">Reset dati</button>
-                  </div>
-                </div>
-
-                <table className="w-full text-sm">
-                  <thead className="text-left text-gray-500 border-b">
-                    <tr>
-                      <th className="py-2">Marca</th>
-                      <th className="py-2">Quantità</th>
-                      <th className="py-2">Min</th>
-                      <th className="py-2">Prezzo</th>
-                      <th className="py-2">Valore</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {inventory.length === 0 && (
-                      <tr><td colSpan="6" className="py-6 text-center text-gray-400">Nessun prodotto</td></tr>
-                    )}
-                    {inventory.map(p => (
-                      <tr key={p.brand} className={`border-t ${p.qty <= (p.min || 0) ? "bg-red-50" : ""}`}>
-                        <td className="py-2 font-medium">{p.brand}</td>
-                        <td className="py-2">{p.qty}pz</td>
-                        <td className="py-2">{p.min || 0}</td>
-                        <td className="py-2">{currency(p.price)}</td>
-                        <td className="py-2">{currency((p.qty||0) * (p.price||0))}</td>
-                        <td className="py-2"><button onClick={() => deleteProduct(p.brand)} className="text-xs px-2 py-1 border rounded text-red-600">Elimina</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Vendite / riepilogo */}
-              <div className="bg-white p-4 rounded-xl shadow">
-                <h3 className="font-semibold text-lg mb-3">Scarico multiplo</h3>
-
-                <form onSubmit={registerSales} className="space-y-3">
-                  {sales.map((s,i) => (
-                    <div key={i} className="flex gap-2 items-center">
-                      <select className="flex-1 border rounded p-2" value={s.brand} onChange={(e)=>updateSale(i,"brand",e.target.value)}>
-                        <option value="">-- Marca --</option>
-                        {inventory.map(p => <option key={p.brand} value={p.brand}>{p.brand} ({p.qty}pz)</option>)}
-                      </select>
-                      <input className="w-24 border rounded p-2" type="number" min="1" placeholder="Qtà" value={s.qty} onChange={(e)=>updateSale(i,"qty",e.target.value)} />
-                      {sales.length > 1 && <button type="button" onClick={()=>removeSaleRow(i)} className="text-red-600 text-lg font-bold">−</button>}
-                    </div>
-                  ))}
-
-                  <div className="flex gap-2">
-                    <button type="button" onClick={addSaleRow} className="text-sm text-blue-600">+ Aggiungi riga</button>
-                    <button className="ml-auto bg-green-600 text-white px-3 py-1 rounded">Registra vendite</button>
-                  </div>
-                </form>
-
-                <hr className="my-3" />
-
-                <div>
-                  <label className="text-sm">Seleziona data</label>
-                  <input type="date" value={filterDate} onChange={e=>setFilterDate(e.target.value)} className="w-full border rounded p-2 mt-1" />
-                  <p className="mt-2 text-sm">Vendite registrate: <strong>{todaysOrders.length}</strong></p>
-                  <p className="text-lg font-bold">{currency(totalToday)}</p>
-                  <div className="mt-3">
-                    <button onClick={exportOrdersCSV} className="w-full text-sm px-3 py-2 border rounded">Esporta vendite CSV</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        );
-      }
-
-      return (
-        <div className="min-h-screen">
-          <Header />
-          <main className="py-6">
-            {page === "gestione" ? <GestioneProdotti /> : <InventarioVendite />}
-          </main>
-
-          <div className="watermark">S.S. - 2025</div>
-        </div>
-      );
-    }
-
-    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-  </script>
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
 </body>
 </html>
-
