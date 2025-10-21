@@ -13,7 +13,7 @@
 <div id="root"></div>
 
 <script type="text/babel">
-const LS_KEYS = { INVENTORY: "bar_inventory_v3", ORDERS: "bar_orders_v3" };
+const LS_KEYS = { INVENTORY: "bar_inventory_v4", ORDERS: "bar_orders_v4" };
 const todayISO = () => new Date().toISOString().slice(0,10);
 const currency = n => n.toLocaleString("it-IT",{style:"currency",currency:"EUR"});
 
@@ -23,7 +23,7 @@ function App(){
   const [orders,setOrders] = React.useState([]);
   const [newProduct,setNewProduct] = React.useState({brand:"",qty:"",price:"",minQty:""});
   const [reloadForm,setReloadForm] = React.useState({brand:"",qty:"",price:""});
-  const [multiUnload,setMultiUnload] = React.useState([{brand:"",qty:""}]);
+  const [multiUnload,setMultiUnload] = React.useState([{id:Date.now(), brand:"", qty:""}]);
   const [filterDate,setFilterDate] = React.useState(todayISO());
 
   // Load localStorage
@@ -75,7 +75,7 @@ function App(){
     const prod = inventory.find(p=>p.brand===reloadForm.brand);
     if(!prod) return alert("Prodotto non trovato");
     const qty = parseInt(reloadForm.qty||0,10);
-    const price = parseFloat(reloadForm.price||prod.price);
+    const price = reloadForm.price!==""?parseFloat(reloadForm.price):prod.price;
     if(isNaN(qty)||qty<=0) return alert("Quantità non valida");
     if(isNaN(price)||price<0) return alert("Prezzo non valido");
 
@@ -107,7 +107,7 @@ function App(){
     }
     setInventory(updates);
     setOrders(newOrders);
-    setMultiUnload([{brand:"",qty:""}]);
+    setMultiUnload([{id:Date.now(), brand:"", qty:""}]);
     setPage("inventory");
   }
 
@@ -120,15 +120,14 @@ function App(){
     const a = document.createElement("a"); a.href=url; a.download="inventario.csv"; a.click(); URL.revokeObjectURL(url);
   }
 
-  // --- UI Helpers ---
   const todaysOrders = orders.filter(o=>o.date.slice(0,10)===filterDate);
   const totalToday = todaysOrders.reduce((s,o)=>s+o.total,0);
 
   return (
     <div className="min-h-screen flex flex-col font-sans">
-      <header className="bg-indigo-600 text-white p-4 flex justify-between items-center">
+      <header className="bg-indigo-600 text-white p-4 flex flex-wrap justify-between items-center">
         <h1 className="text-lg font-bold">Inventario Bar / Tabacchi</h1>
-        <nav className="flex gap-2 text-sm flex-wrap">
+        <nav className="flex gap-2 flex-wrap text-sm mt-2 md:mt-0">
           <button className="px-2 py-1 bg-indigo-400 rounded" onClick={()=>setPage("inventory")}>Inventario</button>
           <button className="px-2 py-1 bg-indigo-400 rounded" onClick={()=>setPage("add")}>Nuovo</button>
           <button className="px-2 py-1 bg-indigo-400 rounded" onClick={()=>setPage("reload")}>Ricarica</button>
@@ -190,40 +189,33 @@ function App(){
         {page==="unload" && (
           <form className="max-w-md mx-auto bg-white p-4 rounded shadow" onSubmit={unloadMulti}>
             <h2 className="text-lg font-semibold mb-2">Scarico multiplo</h2>
-            {multiUnload.map((m,i)=>(
-              <div key={i} className="flex gap-2 mb-2">
+            {multiUnload.map((m)=>(
+              <div key={m.id} className="flex gap-2 mb-2">
                 <select className="flex-1 p-2 border rounded" value={m.brand} onChange={e=>{
-                  setMultiUnload(prev=>{
-                    const copy = [...prev];
-                    copy[i] = {...copy[i], brand:e.target.value};
-                    return copy;
-                  })
+                  setMultiUnload(prev=>prev.map(x=>x.id===m.id?{...x,brand:e.target.value}:x))
                 }}>
                   <option value="">-- Marca --</option>
                   {inventory.map(p=><option key={p.brand} value={p.brand}>{p.brand}</option>)}
                 </select>
                 <input type="number" placeholder="Quantità" className="w-28 p-2 border rounded" value={m.qty} onChange={e=>{
-                  setMultiUnload(prev=>{
-                    const copy = [...prev];
-                    copy[i] = {...copy[i], qty:e.target.value};
-                    return copy;
-                  })
+                  setMultiUnload(prev=>prev.map(x=>x.id===m.id?{...x,qty:e.target.value}:x))
                 }}/>
-                {i===multiUnload.length-1 && <button type="button" className="px-2 bg-green-500 text-white rounded" onClick={()=>setMultiUnload(prev=>[...prev,{brand:"",qty:""}])}>+</button>}
+                {multiUnload[multiUnload.length-1].id===m.id && <button type="button" className="px-2 bg-green-500 text-white rounded" onClick={()=>setMultiUnload(prev=>[...prev,{id:Date.now()+Math.random(),brand:"",qty:""}])}>+</button>}
               </div>
             ))}
-            <button className="px-3 py-1 bg-indigo-600 text-white rounded">Scarica</button>
+            <button className="px-3 py-1 bg-indigo-600 text-white rounded mt-2">Scarica</button>
           </form>
         )}
       </main>
 
-      <div className="fixed bottom-2 right-2 text-gray-400 text-xs select-none pointer-events-none">Ste - 2025</div>
+      <footer className="fixed bottom-2 right-2 text-gray-300 text-xs select-none pointer-events-none">Ste - 2025</footer>
     </div>
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
 </body>
 </html>
+
+
