@@ -13,25 +13,21 @@
 <div id="root"></div>
 
 <script type="text/babel">
-const LS_KEYS = {
-  INVENTORY: "bar_inventory_v2",
-  ORDERS: "bar_orders_v2",
-};
-
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const LS_KEYS = { INVENTORY: "bar_inventory_v3", ORDERS: "bar_orders_v3" };
+const todayISO = () => new Date().toISOString().slice(0,10);
 const currency = n => n.toLocaleString("it-IT",{style:"currency",currency:"EUR"});
 
-function App() {
-  const [page, setPage] = React.useState("inventory"); // inventory | add | reload | orders
-  const [inventory, setInventory] = React.useState([]);
-  const [orders, setOrders] = React.useState([]);
-  const [newProduct, setNewProduct] = React.useState({brand:"", qty:"", price:"", minQty:""});
-  const [reloadForm, setReloadForm] = React.useState({brand:"", qty:"", price:""});
-  const [multiUnload, setMultiUnload] = React.useState([{brand:"", qty:""}]);
-  const [filterDate, setFilterDate] = React.useState(todayISO());
+function App(){
+  const [page,setPage] = React.useState("inventory");
+  const [inventory,setInventory] = React.useState([]);
+  const [orders,setOrders] = React.useState([]);
+  const [newProduct,setNewProduct] = React.useState({brand:"",qty:"",price:"",minQty:""});
+  const [reloadForm,setReloadForm] = React.useState({brand:"",qty:"",price:""});
+  const [multiUnload,setMultiUnload] = React.useState([{brand:"",qty:""}]);
+  const [filterDate,setFilterDate] = React.useState(todayISO());
 
   // Load localStorage
-  React.useEffect(() => {
+  React.useEffect(()=>{
     const inv = localStorage.getItem(LS_KEYS.INVENTORY);
     const ord = localStorage.getItem(LS_KEYS.ORDERS);
     if(inv) setInventory(JSON.parse(inv));
@@ -48,7 +44,7 @@ function App() {
       if(p.minQty && p.qty < p.minQty){
         console.warn(`⚠️ Attenzione: ${p.brand} sotto soglia (${p.qty} < ${p.minQty})`);
       }
-    })
+    });
   },[inventory]);
 
   // --- Aggiungi nuovo prodotto ---
@@ -92,6 +88,7 @@ function App() {
   function unloadMulti(e){
     e.preventDefault();
     const updates = [...inventory];
+    const newOrders = [...orders];
     for(const item of multiUnload){
       if(!item.brand) continue;
       const prod = updates.find(p=>p.brand===item.brand);
@@ -99,7 +96,7 @@ function App() {
       const qty = parseInt(item.qty||0,10);
       if(qty>prod.qty) { alert(`Scorte insufficienti: ${prod.brand}`); continue; }
       prod.qty -= qty;
-      orders.push({
+      newOrders.push({
         id: Date.now()+Math.random(),
         brand: prod.brand,
         qty,
@@ -109,8 +106,9 @@ function App() {
       });
     }
     setInventory(updates);
-    setOrders([...orders]);
-    setMultiUnload([{brand:"", qty:""}]);
+    setOrders(newOrders);
+    setMultiUnload([{brand:"",qty:""}]);
+    setPage("inventory");
   }
 
   // --- CSV Export ---
@@ -119,8 +117,7 @@ function App() {
     inventory.forEach(p=>{ csv+=`${p.brand},${p.qty},${p.price},${p.minQty||""}\n`});
     const blob = new Blob([csv], {type:"text/csv"});
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "inventario.csv"; a.click(); URL.revokeObjectURL(url);
+    const a = document.createElement("a"); a.href=url; a.download="inventario.csv"; a.click(); URL.revokeObjectURL(url);
   }
 
   // --- UI Helpers ---
@@ -131,7 +128,7 @@ function App() {
     <div className="min-h-screen flex flex-col font-sans">
       <header className="bg-indigo-600 text-white p-4 flex justify-between items-center">
         <h1 className="text-lg font-bold">Inventario Bar / Tabacchi</h1>
-        <nav className="flex gap-2 text-sm">
+        <nav className="flex gap-2 text-sm flex-wrap">
           <button className="px-2 py-1 bg-indigo-400 rounded" onClick={()=>setPage("inventory")}>Inventario</button>
           <button className="px-2 py-1 bg-indigo-400 rounded" onClick={()=>setPage("add")}>Nuovo</button>
           <button className="px-2 py-1 bg-indigo-400 rounded" onClick={()=>setPage("reload")}>Ricarica</button>
@@ -142,25 +139,27 @@ function App() {
       <main className="flex-1 p-4 overflow-auto">
         {page==="inventory" && (
           <div>
-            <div className="flex justify-between items-center mb-3">
+            <div className="flex justify-between items-center mb-3 flex-wrap">
               <h2 className="text-lg font-semibold">Inventario</h2>
               <button className="px-2 py-1 bg-green-600 text-white rounded text-sm" onClick={exportCSV}>CSV</button>
             </div>
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-gray-200">
-                <tr><th className="border p-1">Marca</th><th className="border p-1">Qty</th><th className="border p-1">Prezzo</th><th className="border p-1">MinQty</th></tr>
-              </thead>
-              <tbody>
-                {inventory.map(p=>(
-                  <tr key={p.brand} className="border-t">
-                    <td className="p-1">{p.brand}</td>
-                    <td className={`p-1 ${p.minQty && p.qty < p.minQty ? "text-red-600 font-bold" : ""}`}>{p.qty}</td>
-                    <td className="p-1">{currency(p.price)}</td>
-                    <td className="p-1">{p.minQty||""}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead className="bg-gray-200">
+                  <tr><th className="border p-1">Marca</th><th className="border p-1">Qty</th><th className="border p-1">Prezzo</th><th className="border p-1">MinQty</th></tr>
+                </thead>
+                <tbody>
+                  {inventory.map(p=>(
+                    <tr key={p.brand} className="border-t">
+                      <td className="p-1">{p.brand}</td>
+                      <td className={`p-1 ${p.minQty && p.qty < p.minQty ? "text-red-600 font-bold" : ""}`}>{p.qty}</td>
+                      <td className="p-1">{currency(p.price)}</td>
+                      <td className="p-1">{p.minQty||""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -178,12 +177,12 @@ function App() {
         {page==="reload" && (
           <form className="max-w-md mx-auto bg-white p-4 rounded shadow" onSubmit={reloadProduct}>
             <h2 className="text-lg font-semibold mb-2">Ricarica quantità prodotto</h2>
-            <select className="w-full p-2 border mb-2 rounded" value={reloadForm.brand} onChange={e=>setReloadForm({...reloadForm, brand:e.target.value})}>
+            <select className="w-full p-2 border mb-2 rounded" value={reloadForm.brand} onChange={e=>setReloadForm(prev=>({...prev,brand:e.target.value}))}>
               <option value="">-- Seleziona marca --</option>
               {inventory.map(p=><option key={p.brand} value={p.brand}>{p.brand}</option>)}
             </select>
-            <input type="number" placeholder="Quantità da aggiungere" className="w-full p-2 border mb-2 rounded" value={reloadForm.qty} onChange={e=>setReloadForm({...reloadForm, qty:e.target.value})}/>
-            <input type="number" placeholder="Prezzo € (lascia se non cambia)" step="0.01" className="w-full p-2 border mb-2 rounded" value={reloadForm.price} onChange={e=>setReloadForm({...reloadForm, price:e.target.value})}/>
+            <input type="number" placeholder="Quantità da aggiungere" className="w-full p-2 border mb-2 rounded" value={reloadForm.qty} onChange={e=>setReloadForm(prev=>({...prev,qty:e.target.value}))}/>
+            <input type="number" placeholder="Prezzo € (lascia se non cambia)" step="0.01" className="w-full p-2 border mb-2 rounded" value={reloadForm.price} onChange={e=>setReloadForm(prev=>({...prev,price:e.target.value}))}/>
             <button className="px-3 py-1 bg-indigo-600 text-white rounded">Aggiorna</button>
           </form>
         )}
@@ -194,15 +193,23 @@ function App() {
             {multiUnload.map((m,i)=>(
               <div key={i} className="flex gap-2 mb-2">
                 <select className="flex-1 p-2 border rounded" value={m.brand} onChange={e=>{
-                  const copy = [...multiUnload]; copy[i].brand=e.target.value; setMultiUnload(copy);
+                  setMultiUnload(prev=>{
+                    const copy = [...prev];
+                    copy[i] = {...copy[i], brand:e.target.value};
+                    return copy;
+                  })
                 }}>
                   <option value="">-- Marca --</option>
                   {inventory.map(p=><option key={p.brand} value={p.brand}>{p.brand}</option>)}
                 </select>
                 <input type="number" placeholder="Quantità" className="w-28 p-2 border rounded" value={m.qty} onChange={e=>{
-                  const copy = [...multiUnload]; copy[i].qty=e.target.value; setMultiUnload(copy);
+                  setMultiUnload(prev=>{
+                    const copy = [...prev];
+                    copy[i] = {...copy[i], qty:e.target.value};
+                    return copy;
+                  })
                 }}/>
-                {i===multiUnload.length-1 && <button type="button" className="px-2 bg-green-500 text-white rounded" onClick={()=>setMultiUnload([...multiUnload,{brand:"",qty:""}])}>+</button>}
+                {i===multiUnload.length-1 && <button type="button" className="px-2 bg-green-500 text-white rounded" onClick={()=>setMultiUnload(prev=>[...prev,{brand:"",qty:""}])}>+</button>}
               </div>
             ))}
             <button className="px-3 py-1 bg-indigo-600 text-white rounded">Scarica</button>
@@ -210,9 +217,7 @@ function App() {
         )}
       </main>
 
-      <div className="fixed bottom-2 right-2 text-gray-400 text-xs select-none pointer-events-none">
-        S.S. - 2025
-      </div>
+      <div className="fixed bottom-2 right-2 text-gray-400 text-xs select-none pointer-events-none">Ste - 2025</div>
     </div>
   );
 }
